@@ -1,2 +1,2 @@
-# image-transfer
-My implementation of image style transfer
+# Neural Image Style Transfer
+My implementation of neural image style transfer
