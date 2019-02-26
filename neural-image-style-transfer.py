@@ -11,177 +11,170 @@ Citations:
     2) https://github.com/keras-team/keras/blob/master/examples/neural_style_transfer.py
     3) Keras: https://keras.io
     4) https://github.com/walid0925/AI_Artistry/blob/master/main.py
+    5) 5) https://github.com/hunter-heidenreich/ML-Open-Source-Implementations/blob/master/Style-Transfer/Style%20Transfer.ipynb
 
 """
 
-## Import Modules ##
+### Import Modules ###
 
 from keras.applications.vgg16 import VGG16
 from keras.preprocessing import image
 from keras.applications.vgg16 import preprocess_input
-from keras.models import Model
 from keras import backend as K
+from PIL import Image
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 
-## Constants for Code Dev. ##
 
-style_path = "persistence-of-memory-salvador-deli.jpg"
-content_path = "running-horses.jpg"
-wn_path = "white-noise.jpg"
+### Constants for Code Dev. ###
 
-tf_session = K.get_session()
+# Paths
 
-## Neural Image Style Transfer ##
+style_img_path = "persistence-of-memory-salvador-deli.jpg"
+content_img_path = "running-horses.jpg"
 
-def style_transfer(style_path, content_path, wn_path, iterations = 100):
-    # preprocess images: style, content, white noise
-    style_mat = preprocess_img(style_path)
-    content_mat = preprocess_img(content_path)
-    wn_mat = preprocess_img(wn_path)   
-    # VGG network features stored
-    vgg_model = VGG16(weights = 'imagenet',
-                           pooling = 'avg',
-                           include_top = False)
-    # Extractions
-    style_layers = ['block1_conv2', 'block2_conv2', 'block3_conv3',
-                    'block4_conv3', 'block5_conv3']
-    style_extracts = extract(vgg_model, style_layers, style_mat)
-    
-    content_layers = ['block5_conv3']
-    content_extract = extract(vgg_model, content_layers, content_mat)[0]
-    
-    weights = np.ones(len(style_layers))/float(len(style_layers))
-    
-    # Feed to Network
-    input_wn = wn_mat.flatten()
-    
-    
-    
-    '''
-    TODO:
-        - Backprop to update WN image. K.gradients
-        - Iterate & run
-    '''
-    
-    
-    return
+# Img Preprocessing Constants
 
-## Image Preprocessing Functions ##
+final_height = 256
+final_width = 256
+target_size = (final_height, final_width)
+
+
+### Preprocess Image ###
 
 def preprocess_img(img_path):
     '''
     Preprocess image and return a tensor representation of it
+    Returns preprocessed image in BGR format
     '''
-    img = image.load_img(img_path, target_size=(224, 224))
+    img = image.load_img(img_path, target_size = target_size)
     img_mat = image.img_to_array(img)
     img_mat = np.expand_dims(img_mat, axis=0)
     img_mat = preprocess_input(img_mat)
-    return img_mat
+    return K.variable(img_mat)
 
-## Feature Extraction ##
 
-def extract(model, layers, image_mat):
+### Feature Extraction ###
+
+def extract_layers(content_matrix, style_matrix, generated_matrix):
     '''
-    Get layered features in list form
+    Runs matrices through VGG models and returns layer values
+    for transfer
     '''
-    stored_features = []
-    for layer in layers:
-        layer_model = Model(inputs = model.input, 
-                            outputs = model.get_layer(layer).output)
-        layer_out = layer_model.predict(image_mat)
-        # get shapes of extraction -> should be (1 x L x W x D)
-        shape = K.shape(layer_out).eval(session = tf_session)
-        N_l = shape[3]
-        M_l = shape[1]*shape[2]
-        # format final matrix for proper shape
-        feature_mat = K.transpose(K.reshape(layer_out, (M_l, N_l)))
-        stored_features.append(feature_mat)
-    return stored_features
+    input_tensor = K.concatenate([content_matrix, style_matrix, generated_matrix], axis = 0)
+    vgg_model = VGG16(input_tensor = input_tensor,
+                      weights = 'imagenet',
+                      pooling = 'avg',
+                      include_top = False)
+    # input and output layers of whole model stored in dictionary
+    layers_dict = dict([(layer.name, layer.output) for layer in vgg_model.layers])
+    # specify layers for content and style
+    content_layer = 'block5_conv3'
+    style_layers = ['block1_conv2', 'block2_conv2', 'block3_conv3',
+                    'block4_conv3', 'block5_conv3']
+    content_extract = layers_dict[content_layer]
+    style_extracts = [layers_dict[layer] for layer in style_layers]
+    return content_extract, style_extracts
 
-## Loss Functions ##
 
-def content_loss(content_extract, wn_extract):
-    loss = .5*(K.sum(K.square(wn_extract - content_extract)))
-    return loss
+### Loss Functions ###
 
-def gram(extract):
-    corr_mat = K.dot(extract, K.transpose(extract))
+def content_loss(content_features, generated_features):
+    c_loss = .5*(K.sum(K.square(generated_features - content_features)))
+    return c_loss
+
+
+def gram_matrix(features):
+    corr_mat = K.dot(features, K.transpose(features))
     return corr_mat
 
-def style_loss(weights, wn_extracts, style_extracts):
+
+def style_loss(style_feature, generated_feature):
     '''
-    weights, number of gram matrices, and layers
-    in the style_extracts should all be the same length
+    For this implementation, we assume equal weights for
+    weighing the layered losses.
     '''
-    s_loss = K.variable(0)
-    for i in range(len(weights)):
-        # initialize values
-        weight = weights[i]
-        layered_wn_extract = wn_extracts[i]
-        layered_style_extract = style_extracts[i]
-        # calculate layer loss
-        layered_Nl = K.shape(layered_wn_extract).eval(session = tf_session)[0]
-        layered_Ml = K.shape(layered_wn_extract).eval(session = tf_session)[1]
-        wn_gram = gram(layered_wn_extract)
-        style_gram = gram(layered_style_extract)
-        layer_loss = weight*.25*K.sum(K.square(wn_gram - style_gram)) / (layered_Nl**2 * layered_Ml**2)
-        s_loss += layer_loss
+    
+    # since preprocessing matrix puts in BGR form, we permute to put in RBG form
+    style_reshape = K.batch_flatten(K.permute_dimensions(style_feature, (2, 0, 1)))
+    generated_reshape = K.batch_flatten(K.permute_dimensions(generated_feature, (2, 0, 1)))
+    
+    # get gram matrices
+    style_gram = gram_matrix(style_reshape)
+    generated_gram = gram_matrix(generated_reshape)
+    
+    s_loss = .25 * K.sum(K.square(generated_gram - style_gram)) / (3**2 * (final_width*final_height)**2)
     return s_loss
 
-def total_loss(model, weights, wn_mat, content_layers, style_layers,
-               content_extract, style_extracts, alpha = 1, beta = 10000):
+
+def total_loss(content_matrix, style_matrix, generated_matrix, alpha = 10, beta = 1000):
+    c_layer_extract, s_layers_extract = extract_layers(content_matrix, style_matrix, generated_matrix)
+    # content loss
+    content_feature = c_layer_extract[0, :, :, :]
+    gen_content_feature = c_layer_extract[2, :, :, :]
+    c_loss = content_loss(content_feature, gen_content_feature)
+    # style loss
+    s_loss = 0
+    for i in range(len(s_layers_extract)):
+        s_layer_extract = s_layers_extract[i]
+        style_feature = s_layer_extract[1, :, :, :]
+        gen_style_feature = s_layer_extract[2, :, :, :]
+        s_loss += (style_loss(style_feature, gen_style_feature) / len(s_layers_extract))
+    return alpha*c_loss + beta*s_loss
+
+
+def evaluate_loss(generated_img):
     '''
-    Calculates total loss, with weights alpha and beta. 
-    Alpha weights the content loss, Beta the style loss. 
-    Defaults are recommended values from the paper.
+    issue is tying outputs
     '''
-    wn_content_extract = extract(model, content_layers, wn_mat)[0]
-    wn_style_extracts = extract(model, style_layers, wn_mat)
-    c_loss = content_loss(content_extract, wn_content_extract)
-    s_loss = style_loss(weights, wn_style_extracts, style_extracts)
-    total_loss_ = alpha*c_loss + beta*s_loss
-    return total_loss_
+    
+    generated_img = generated_img.reshape((1, final_height, final_width, 3))
+    outputs = output_fn([generated_img])
+    loss_val = outputs[0]
+    return loss_val
 
-def differentiable_loss(model, weights, wn_mat, content_layers, style_layers,
-                        content_extract, style_extracts):
+def evaluate_gradient(generated_img):
     '''
-    convert loss function to a Keras-type function
-    to take gradients
+    issue is tying outputs
     '''
-    if wn_mat.shape != (1, 224, 224, 3):
-        wn_mat = wn_mat.reshape(1, 224, 224, 3)
-    differentiable_fn = K.function([model.input],
-                                   [total_loss(model,
-                                               weights,
-                                               model.input,
-                                               content_layers,
-                                               style_layers,
-                                               content_extract,
-                                               style_extracts)])  
-    return differentiable_fn([wn_mat])[0]
+    
+    generated_img = generated_img.reshape((1, final_height, final_width, 3))
+    outputs = output_fn([generated_img])
+    gradient_values = outputs[1].flatten().astype('float64')
+    return gradient_values
 
-def get_gradient(model, weights, wn_mat, content_layers, style_layers,
-                 content_extract, style_extracts):
-    '''
-    Calculate gradients for differentiable loss
-    '''
-    if wn_mat.shape != (1, 224, 224, 3):
-        wn_mat = wn_mat.reshape(1, 224, 224, 3)
-    grad_fn = K.function([model.input],
-                         K.gradients(total_loss(model,
-                                                weights,
-                                                model.input,
-                                                content_layers,
-                                                style_layers,
-                                                content_extract,
-                                                style_extracts),
-                                     [model.input]))
-    gradient = grad_fn([wn_mat])[0].flatten()
-    return gradient
+### Style transfer ###
 
+def style_transfer(iterations = 300):
+    # Generate White Noise
+    generated_matrix = np.random.uniform(0, 255, (1, final_height, final_width, 3))
+    generated_matrix = preprocess_input(generated_matrix)
+    generated_image = K.placeholder((1, final_height, final_width, 3))
+    # load pictures + use the wn image made in the global scape
+    content_matrix = preprocess_img(content_img_path)
+    style_matrix = preprocess_img(style_img_path)
+    # extract all layers
+    content_layer, style_layers = extract_layers(content_matrix, style_matrix, generated_image)
+    # calculate loss
+    loss = total_loss(content_matrix, style_matrix, generated_image)
+    gradients = K.gradients(loss, generated_image)
+    outputs = [loss] + gradients
+    output_fn = K.function([generated_image], outputs)
+    
+    #fn_outs = output_fn([generated_image]) # yields error
 
-
-
-
-
+    new_gen_img, new_loss_val, info = fmin_l_bfgs_b(evaluate_loss,
+                                                    generated_matrix.flatten(),
+                                                    fprime = evaluate_gradient,
+                                                    maxiter = 350)
+    # save image
+    save_img = new_gen_img.reshape((final_height, final_width, 3))
+    save_img = save_img[:, :, ::-1]
+    save_img[:, :, 0] += 103.939
+    save_img[:, :, 1] += 116.779
+    save_img[:, :, 2] += 123.68
+    save_img = np.clip(save_img, 0, 255).astype('uint8')
+    save_img = Image.fromarray(save_img)
+    save_img = save_img.resize(target_size)
+    save_img.save('final-img5.jpg')
+    return
