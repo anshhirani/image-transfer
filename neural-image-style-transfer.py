@@ -26,15 +26,9 @@ import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 
 
-# Img Preprocessing Constants
-
-final_height = 512
-final_width = 512
-target_size = (final_height, final_width)
-
 ### Preprocess Image ###
 
-def preprocess_img(img_path):
+def preprocess_img(img_path, target_size):
     '''
     Preprocess image and return a tensor representation of it
     Returns preprocessed image in BGR format
@@ -82,7 +76,7 @@ def gram_matrix(features):
     return corr_mat
 
 
-def style_loss(style_feature, generated_feature):
+def style_loss(style_feature, generated_feature, final_width, final_height):
     '''
     For this implementation, we assume equal weights for
     weighing the layered losses.
@@ -100,7 +94,7 @@ def style_loss(style_feature, generated_feature):
     return s_loss
 
 
-def total_loss(content_matrix, style_matrix, generated_matrix, alpha, beta):
+def total_loss(content_matrix, style_matrix, generated_matrix, alpha, beta, final_width, final_height):
     c_layer_extract, s_layers_extract = extract_layers(content_matrix, style_matrix, generated_matrix)
     # content loss
     content_feature = c_layer_extract[0, :, :, :]
@@ -112,11 +106,11 @@ def total_loss(content_matrix, style_matrix, generated_matrix, alpha, beta):
         s_layer_extract = s_layers_extract[i]
         style_feature = s_layer_extract[1, :, :, :]
         gen_style_feature = s_layer_extract[2, :, :, :]
-        s_loss += (style_loss(style_feature, gen_style_feature) / len(s_layers_extract))
+        s_loss += (style_loss(style_feature, gen_style_feature, final_width, final_height) / len(s_layers_extract))
     return alpha*c_loss + beta*s_loss
 
 
-def evaluate_loss(generated_img, output_fn):
+def evaluate_loss(generated_img, final_width, final_height, output_fn):
     '''
     Calculates differentiable loss value
     '''
@@ -126,7 +120,7 @@ def evaluate_loss(generated_img, output_fn):
     loss_val = outputs[0]
     return loss_val
 
-def evaluate_gradient(generated_img, output_fn):
+def evaluate_gradient(generated_img, final_width, final_height, output_fn):
     '''
     Calculates the gradient for updating
     '''
@@ -138,18 +132,20 @@ def evaluate_gradient(generated_img, output_fn):
 
 ### Style transfer ###
 
-def style_transfer(style_img_path, content_img_path, gen_im_name, alpha = 1, beta = 10, iterations = 350):
+def style_transfer(style_img_path, content_img_path, gen_im_name, final_height = 256,
+                   final_width = 256, alpha = 1, beta = 10, iterations = 350):
+    target_size = (final_height, final_width)
     # Generate White Noise
     generated_matrix = np.random.uniform(0, 255, (1, final_height, final_width, 3))
     generated_matrix = preprocess_input(generated_matrix)
     generated_image = K.placeholder((1, final_height, final_width, 3))
     # load pictures + use the wn image made in the global scape
-    content_matrix = preprocess_img(content_img_path)
-    style_matrix = preprocess_img(style_img_path)
+    content_matrix = preprocess_img(content_img_path, target_size)
+    style_matrix = preprocess_img(style_img_path, target_size)
     # extract all layers
     content_layer, style_layers = extract_layers(content_matrix, style_matrix, generated_image)
     # calculate loss
-    loss = total_loss(content_matrix, style_matrix, generated_image, alpha, beta)
+    loss = total_loss(content_matrix, style_matrix, generated_image, alpha, beta, final_width, final_height)
     gradients = K.gradients(loss, generated_image)
     outputs = [loss] + gradients
     output_fn = K.function([generated_image], outputs)
@@ -157,7 +153,7 @@ def style_transfer(style_img_path, content_img_path, gen_im_name, alpha = 1, bet
     new_gen_img, new_loss_val, info = fmin_l_bfgs_b(evaluate_loss,
                                                     generated_matrix.flatten(),
                                                     fprime = evaluate_gradient,
-                                                    args = (output_fn,),
+                                                    args = (final_width, final_height, output_fn,),
                                                     maxiter = iterations)
     # save image
     save_img = new_gen_img.reshape((final_height, final_width, 3))
