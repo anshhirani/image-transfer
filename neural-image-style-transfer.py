@@ -26,19 +26,11 @@ import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 
 
-### Constants for Code Dev. ###
-
-# Paths
-
-style_img_path = "persistence-of-memory-salvador-deli.jpg"
-content_img_path = "running-horses.jpg"
-
 # Img Preprocessing Constants
 
 final_height = 256
 final_width = 256
 target_size = (final_height, final_width)
-
 
 ### Preprocess Image ###
 
@@ -69,9 +61,10 @@ def extract_layers(content_matrix, style_matrix, generated_matrix):
     # input and output layers of whole model stored in dictionary
     layers_dict = dict([(layer.name, layer.output) for layer in vgg_model.layers])
     # specify layers for content and style
-    content_layer = 'block5_conv3'
-    style_layers = ['block1_conv2', 'block2_conv2', 'block3_conv3',
-                    'block4_conv3', 'block5_conv3']
+    content_layer = 'block4_conv2'
+    style_layers = ['block1_conv1', 'block2_conv1', 'block3_conv1',
+                    'block4_conv1', 'block5_conv1']
+
     content_extract = layers_dict[content_layer]
     style_extracts = [layers_dict[layer] for layer in style_layers]
     return content_extract, style_extracts
@@ -107,7 +100,7 @@ def style_loss(style_feature, generated_feature):
     return s_loss
 
 
-def total_loss(content_matrix, style_matrix, generated_matrix, alpha = 10, beta = 1000):
+def total_loss(content_matrix, style_matrix, generated_matrix, alpha = 1, beta = 100):
     c_layer_extract, s_layers_extract = extract_layers(content_matrix, style_matrix, generated_matrix)
     # content loss
     content_feature = c_layer_extract[0, :, :, :]
@@ -123,7 +116,7 @@ def total_loss(content_matrix, style_matrix, generated_matrix, alpha = 10, beta 
     return alpha*c_loss + beta*s_loss
 
 
-def evaluate_loss(generated_img):
+def evaluate_loss(generated_img, output_fn):
     '''
     issue is tying outputs
     '''
@@ -133,7 +126,7 @@ def evaluate_loss(generated_img):
     loss_val = outputs[0]
     return loss_val
 
-def evaluate_gradient(generated_img):
+def evaluate_gradient(generated_img, output_fn):
     '''
     issue is tying outputs
     '''
@@ -145,7 +138,7 @@ def evaluate_gradient(generated_img):
 
 ### Style transfer ###
 
-def style_transfer(iterations = 300):
+def style_transfer(style_img_path, content_img_path, gen_im_name, iterations = 350):
     # Generate White Noise
     generated_matrix = np.random.uniform(0, 255, (1, final_height, final_width, 3))
     generated_matrix = preprocess_input(generated_matrix)
@@ -166,7 +159,8 @@ def style_transfer(iterations = 300):
     new_gen_img, new_loss_val, info = fmin_l_bfgs_b(evaluate_loss,
                                                     generated_matrix.flatten(),
                                                     fprime = evaluate_gradient,
-                                                    maxiter = 350)
+                                                    args = (output_fn,),
+                                                    maxiter = iterations)
     # save image
     save_img = new_gen_img.reshape((final_height, final_width, 3))
     save_img = save_img[:, :, ::-1]
@@ -176,5 +170,6 @@ def style_transfer(iterations = 300):
     save_img = np.clip(save_img, 0, 255).astype('uint8')
     save_img = Image.fromarray(save_img)
     save_img = save_img.resize(target_size)
-    save_img.save('final-img5.jpg')
+    save_img.save(gen_im_name)
     return
+
