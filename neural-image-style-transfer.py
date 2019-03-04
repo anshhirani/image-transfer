@@ -28,8 +28,8 @@ from scipy.optimize import fmin_l_bfgs_b
 
 # Img Preprocessing Constants
 
-final_height = 256
-final_width = 256
+final_height = 512
+final_width = 512
 target_size = (final_height, final_width)
 
 ### Preprocess Image ###
@@ -100,7 +100,7 @@ def style_loss(style_feature, generated_feature):
     return s_loss
 
 
-def total_loss(content_matrix, style_matrix, generated_matrix, alpha = 1, beta = 100):
+def total_loss(content_matrix, style_matrix, generated_matrix, alpha, beta):
     c_layer_extract, s_layers_extract = extract_layers(content_matrix, style_matrix, generated_matrix)
     # content loss
     content_feature = c_layer_extract[0, :, :, :]
@@ -118,7 +118,7 @@ def total_loss(content_matrix, style_matrix, generated_matrix, alpha = 1, beta =
 
 def evaluate_loss(generated_img, output_fn):
     '''
-    issue is tying outputs
+    Calculates differentiable loss value
     '''
     
     generated_img = generated_img.reshape((1, final_height, final_width, 3))
@@ -128,7 +128,7 @@ def evaluate_loss(generated_img, output_fn):
 
 def evaluate_gradient(generated_img, output_fn):
     '''
-    issue is tying outputs
+    Calculates the gradient for updating
     '''
     
     generated_img = generated_img.reshape((1, final_height, final_width, 3))
@@ -138,7 +138,7 @@ def evaluate_gradient(generated_img, output_fn):
 
 ### Style transfer ###
 
-def style_transfer(style_img_path, content_img_path, gen_im_name, iterations = 350):
+def style_transfer(style_img_path, content_img_path, gen_im_name, alpha = 1, beta = 10, iterations = 350):
     # Generate White Noise
     generated_matrix = np.random.uniform(0, 255, (1, final_height, final_width, 3))
     generated_matrix = preprocess_input(generated_matrix)
@@ -149,12 +149,10 @@ def style_transfer(style_img_path, content_img_path, gen_im_name, iterations = 3
     # extract all layers
     content_layer, style_layers = extract_layers(content_matrix, style_matrix, generated_image)
     # calculate loss
-    loss = total_loss(content_matrix, style_matrix, generated_image)
+    loss = total_loss(content_matrix, style_matrix, generated_image, alpha, beta)
     gradients = K.gradients(loss, generated_image)
     outputs = [loss] + gradients
     output_fn = K.function([generated_image], outputs)
-    
-    #fn_outs = output_fn([generated_image]) # yields error
 
     new_gen_img, new_loss_val, info = fmin_l_bfgs_b(evaluate_loss,
                                                     generated_matrix.flatten(),
@@ -172,4 +170,3 @@ def style_transfer(style_img_path, content_img_path, gen_im_name, iterations = 3
     save_img = save_img.resize(target_size)
     save_img.save(gen_im_name)
     return
-
